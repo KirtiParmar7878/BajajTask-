@@ -1,0 +1,212 @@
+import org.springframework.boot.CommandLineRunner;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.web.client.RestTemplateBuilder;
+import org.springframework.context.annotation.Bean;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestTemplate;
+
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
+
+@SpringBootApplication
+public class BajajFinservHealthApp {
+
+    public static void main(String[] args) {
+        SpringApplication.run(BajajFinservHealthApp.class, args);
+    }
+
+    // Bean to create a RestTemplate, which is used for making HTTP requests.
+    @Bean
+    public RestTemplate restTemplate(RestTemplateBuilder builder) {
+        return builder.build();
+    }
+}
+
+// Data class to represent the request body for the webhook generation API.
+class WebhookRequest {
+    private String name;
+    private String regNo;
+    private String email;
+
+    // Getters and Setters
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public String getRegNo() {
+        return regNo;
+    }
+
+    public void setRegNo(String regNo) {
+        this.regNo = regNo;
+    }
+
+    public String getEmail() {
+        return email;
+    }
+
+    public void setEmail(String email) {
+        this.email = email;
+    }
+}
+
+// Data class to represent the response body from the webhook generation API.
+class WebhookResponse {
+    private String webhookUrl;
+    private String accessToken;
+
+    // Getters and Setters
+    public String getWebhookUrl() {
+        return webhookUrl;
+    }
+
+    public void setWebhookUrl(String webhookUrl) {
+        this.webhookUrl = webhookUrl;
+    }
+
+    public String getAccessToken() {
+        return accessToken;
+    }
+
+    public void setAccessToken(String accessToken) {
+        this.accessToken = accessToken;
+    }
+}
+
+// Data class to represent the request body for submitting the final SQL query.
+class SolutionRequest {
+    private String finalQuery;
+
+    // Getters and Setters
+    public String getFinalQuery() {
+        return finalQuery;
+    }
+
+    public void setFinalQuery(String finalQuery) {
+        this.finalQuery = finalQuery;
+    }
+}
+
+@Component
+class StartupRunner implements CommandLineRunner {
+
+    private final RestTemplate restTemplate;
+
+    // The name, registration number, and email to be used for the request.
+    private static final String MY_NAME = "John Doe";
+    private static final String MY_REG_NO = "REG12347";
+    private static final String MY_EMAIL = "john@example.com";
+
+    // Constructor with Dependency Injection for RestTemplate
+    public StartupRunner(RestTemplate restTemplate) {
+        this.restTemplate = restTemplate;
+    }
+
+    @Override
+    public void run(String... args) throws Exception {
+        System.out.println("Starting the Bajaj Finserv Health automation process...");
+
+        // Step 1: Generate the webhook
+        String generateWebhookUrl = "https://bfhldevapigw.healthrx.co.in/hiring/generateWebhook/JAVA";
+        HttpHeaders generateHeaders = new HttpHeaders();
+        generateHeaders.setContentType(MediaType.APPLICATION_JSON);
+
+        WebhookRequest webhookRequest = new WebhookRequest();
+        webhookRequest.setName(MY_NAME);
+        webhookRequest.setRegNo(MY_REG_NO);
+        webhookRequest.setEmail(MY_EMAIL);
+
+        HttpEntity<WebhookRequest> generateEntity = new HttpEntity<>(webhookRequest, generateHeaders);
+
+        try {
+            ResponseEntity<WebhookResponse> generateResponse = restTemplate.postForEntity(generateWebhookUrl, generateEntity, WebhookResponse.class);
+            if (generateResponse.getStatusCode().is2xxSuccessful()) {
+                WebhookResponse responseBody = generateResponse.getBody();
+                String webhookUrl = responseBody.getWebhookUrl();
+                String accessToken = responseBody.getAccessToken();
+                System.out.println("Successfully generated webhook. URL: " + webhookUrl);
+                System.out.println("Access Token: " + accessToken);
+
+                // Step 2: Solve the SQL problem and get the final query.
+                // The problem is from Question 1 (odd regNo).
+                String finalQuery = getFinalSqlQuery();
+                System.out.println("Generated final SQL query: " + finalQuery);
+
+                // Step 3: Submit the final query to the webhook.
+                submitSolution(webhookUrl, accessToken, finalQuery);
+            } else {
+                System.err.println("Failed to generate webhook. Status code: " + generateResponse.getStatusCodeValue());
+            }
+        } catch (Exception e) {
+            System.err.println("An error occurred during webhook generation or submission: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Constructs the final SQL query based on the problem statement from "SQL Question 1 JAVA .pdf".
+     * Finds the highest salary not credited on the 1st of the month and returns the employee's name, age, and department.
+     *
+     * @return The final SQL query string.
+     */
+    private String getFinalSqlQuery() {
+        // This query finds the highest salary not on the 1st of the month,
+        // then joins the tables to get the details of the employee who received it.
+        // It uses a subquery to find the max amount first.
+        // Assumes a SQL dialect with CONCAT and TIMESTAMPDIFF functions.
+        // TIMESTAMPDIFF is a more accurate way to calculate age than (YEAR(CURDATE()) - YEAR(DOB)).
+        return "SELECT " +
+               "p.AMOUNT AS SALARY, " +
+               "CONCAT(e.FIRST_NAME, ' ', e.LAST_NAME) AS NAME, " +
+               "TIMESTAMPDIFF(YEAR, e.DOB, CURDATE()) AS AGE, " +
+               "d.DEPARTMENT_NAME " +
+               "FROM PAYMENTS p " +
+               "JOIN EMPLOYEE e ON p.EMP_ID = e.EMP_ID " +
+               "JOIN DEPARTMENT d ON e.DEPARTMENT = d.DEPARTMENT_ID " +
+               "WHERE p.AMOUNT = (SELECT MAX(AMOUNT) FROM PAYMENTS WHERE DAY(PAYMENT_TIME) <> 1);";
+    }
+
+    /**
+     * Submits the final SQL query to the provided webhook URL.
+     *
+     * @param webhookUrl The URL to which the solution is submitted.
+     * @param accessToken The JWT token for authorization.
+     * @param finalQuery The final SQL query string.
+     */
+    private void submitSolution(String webhookUrl, String accessToken, String finalQuery) {
+        System.out.println("Submitting the final query to the webhook...");
+        HttpHeaders submitHeaders = new HttpHeaders();
+        submitHeaders.setContentType(MediaType.APPLICATION_JSON);
+        submitHeaders.setBearerAuth(accessToken); // Set the JWT token in the Authorization header
+
+        SolutionRequest solutionRequest = new SolutionRequest();
+        solutionRequest.setFinalQuery(finalQuery);
+
+        HttpEntity<SolutionRequest> submitEntity = new HttpEntity<>(solutionRequest, submitHeaders);
+
+        try {
+            ResponseEntity<String> submitResponse = restTemplate.postForEntity(webhookUrl, submitEntity, String.class);
+            if (submitResponse.getStatusCode().is2xxSuccessful()) {
+                System.out.println("Successfully submitted the solution.");
+                System.out.println("Response: " + submitResponse.getBody());
+            } else {
+                System.err.println("Failed to submit solution. Status code: " + submitResponse.getStatusCodeValue());
+                System.err.println("Response: " + submitResponse.getBody());
+            }
+        } catch (Exception e) {
+            System.err.println("An error occurred during solution submission: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+}
